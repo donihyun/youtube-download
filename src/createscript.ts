@@ -1,11 +1,16 @@
 import { config as loadEnv } from "dotenv";
 import * as readline from "readline";
 import { pathToFileURL } from "url";
-import { detectSceneChanges, extractFrames } from "./scene.js";
-import { describeAllScenes } from "./description.js";
-import { generateAllScripts } from "./generatescript.js";
-import type { CombinedScript } from "./generatescript.js";
+import { generateTimedScriptFromVideo } from "./pipeline.js";
+
 loadEnv();
+
+function secToClock(sec: number): string {
+  const s = Math.max(0, Math.floor(sec));
+  const mm = String(Math.floor(s / 60)).padStart(2, "0");
+  const ss = String(s % 60).padStart(2, "0");
+  return `${mm}:${ss}`;
+}
 
 async function main() {
   const rl = readline.createInterface({
@@ -20,36 +25,27 @@ async function main() {
   };
 
   try {
-    const videoFilePath = await question("Enter video file path: ");
-    const topic = await question("Enter topic: ");
+    const videoFilePath = (await question("Enter video file path: ")).trim();
+    const subject = (await question("Enter subject: ")).trim();
 
-    console.log("\n=== Script ===");
+    if (!videoFilePath) {
+      throw new Error("Video file path is required.");
+    }
+
+    console.log("\n=== Direct Video -> Timed Script ===");
     console.log(`Video File: ${videoFilePath}`);
-    console.log(`Topic: ${topic}`);
-    console.log("\nGenerating script based on your inputs...");
+    console.log(`Subject: ${subject || "(none)"}`);
+    console.log("\nGenerating timed sentence-by-sentence script...");
 
-    const interval = 1;
-    const scenes = await detectSceneChanges(videoFilePath, question);
+    const result = await generateTimedScriptFromVideo(videoFilePath, subject);
 
-    if (scenes.length === 0) {
-      console.log("No scenes detected. Exiting.");
-      return;
-    }
+    console.log("\n--- JSON ---");
+    console.log(JSON.stringify(result, null, 2));
 
-    console.log("Extracting frames for detected scenes...");
-    await extractFrames(videoFilePath, scenes, interval);
-    console.log("Describing scenes...");
-    const descriptions = await describeAllScenes(scenes, interval, topic);
-    console.log("Generating combined script...");
-    const scriptResult: CombinedScript = await generateAllScripts(scenes, descriptions, topic, interval);
-
-    console.log(`\n--- Combined Script ---`);
-    console.log(`Pacing: ${scriptResult.pacing} | Estimated Words: ${scriptResult.totalEstimatedWords}`);
-    if (scriptResult.emphasis?.length) {
-      console.log(`Emphasis: ${scriptResult.emphasis.join(", ")}`);
-    }
-    console.log(scriptResult.script);
-
+    console.log("\n--- CapCut Paste Format ---");
+    result.segments.forEach((seg) => {
+      console.log(`[${secToClock(seg.startSec)}-${secToClock(seg.endSec)}] ${seg.sentence}`);
+    });
   } catch (error) {
     console.error("Error:", error);
   } finally {
@@ -57,7 +53,6 @@ async function main() {
   }
 }
 
-// Run when executed directly (ESM-safe)
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main();
 }
